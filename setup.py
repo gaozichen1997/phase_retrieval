@@ -11,7 +11,7 @@ setup(
     url = 'https://github.com/automorphisms-of-a-square/phase_retrieval',
     install_requires = ['scipy','matplotlib','reikna'],
     python_requires = '>=3.0, <4',
-    package_data = {'phase_retrieval':['phase_retrieval/data/squares.gif','GPL-v3.txt', 'Manifest.in', 'README.txt']},
+    package_data = {'phase_retrieval':['phase_retrieval/data/squares.gif','LICENSE', 'Manifest.in', 'README.txt']},
     include_package_data=True,
     classifiers = ["Programming Language :: Python",
 	               "Programming Language :: Python :: 3",
