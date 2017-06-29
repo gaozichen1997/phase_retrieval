@@ -14,6 +14,7 @@ import subprocess
 from subprocess import PIPE
 from concurrent.futures import ProcessPoolExecutor as Pool
 import sys
+import os
 python_bin = sys.executable 
 
 try:
@@ -29,17 +30,23 @@ try:
 except AttributeError:
     def _translate(context, text, disambig):
         return QtGui.QApplication.translate(context, text, disambig)
-        
+    
 try:
     from reikna import cluda
-    cluda.any_api() 
-    CGStr = 'gpu/conjugate_gradient_algorithm_2D.py'
-    HIOStr = 'gpu/HIO_With_ER_algorithm_2D.py'
-    ERStr = 'gpu/ER_algorithm_2D.py'
+    cluda.any_api()
+    from phase_retrieval import gpu
+    import inspect
+    base = os.path.dirname(inspect.getfile(gpu))
+    CGStr = os.path.join(base,'conjugate_gradient_algorithm_2D.py')
+    HIOStr =os.path.join(base,'HIO_With_ER_algorithm_2D.py')
+    ERStr = os.path.join(base,'ER_algorithm_2D.py')
 except Exception as e:
-    CGStr = 'cpu/conjugate_gradient_algorithm_2D.py'
-    HIOStr = 'cpu/HIO_With_ER_algorithm_2D.py'
-    ERStr = 'cpu/ER_algorithm_2D.py'
+    from phase_retrieval import cpu
+    import inspect
+    base = os.path.dirname(inspect.getfile(cpu))
+    CGStr = os.path.join(base,'conjugate_gradient_algorithm_2D.py')
+    HIOStr = os.path.join(base,'HIO_With_ER_algorithm_2D.py')
+    ERStr = os.path.join(base,'ER_algorithm_2D.py')
 
 
 class Ui_form(object):    
@@ -318,14 +325,20 @@ class gif(QtGui.QWidget):
     def __init__(self,*args,parent=None,**kwargs):
         super(gif,self).__init__(parent,*args,**kwargs)
         lab = QtGui.QLabel(self)
-        self.movie = QMovie('squares.gif')
+        import phase_retrieval.data as data
+        import inspect
+        base = os.path.dirname(inspect.getfile(data))
+        self.movie = QMovie(os.path.join(base,'squares.gif'))
         lab.setMovie(self.movie)
         lab.setAlignment(QtCore.Qt.AlignCenter)
         self.movie.start()
 		
 def start(*args):
     import sys
-    app = QtGui.QApplication(*args)
+    if args:
+        app = QtGui.QApplication(*args)
+    else:
+        app = QtGui.QApplication(['run.py'])
     app.setStyle(style)
     form = QtGui.QWidget()
     ui = Ui_form()
