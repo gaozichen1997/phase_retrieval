@@ -1,3 +1,4 @@
-dist
+__pycache__
+*.pyc
+phase_retrieval.egg-info
 build
-MANIFEST

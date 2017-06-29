@@ -1,2 +1,5 @@
-include phase_retrieval/squares.gif
+include phase_retrieval/data/squares.gif
 include GPL-v3.txt
+include README.txt
+include phase_retrieval/gpu/*.py
+include phase_retrieval/cpu/*.py
