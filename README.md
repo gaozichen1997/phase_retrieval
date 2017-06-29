@@ -14,5 +14,7 @@
 - phase_retrieval can be run from the command line by typing `phase_retrieval`
 - alternativly, in the interactive python shell, you can type
 
-        >>> from phase_retrieval import run
-        >>> run.start()
+```python
+>>> from phase_retrieval import run
+>>> run.start()
+```
