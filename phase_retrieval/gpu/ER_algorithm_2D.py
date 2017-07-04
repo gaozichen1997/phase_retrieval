@@ -1,3 +1,4 @@
+
 import sys
 signal = int(sys.argv[1])
 n = int(sys.argv[2])
@@ -93,101 +94,110 @@ class ER(object):
                         linewidth=0, antialiased=False)
         plt.title("Original signal")
 
-        mag = abs(fftpack.fftn(s0))
+        mag = abs(fftpack.fftn(s0))  # |F(u)|
         iphase = sp.random.uniform(-sp.pi,sp.pi,size=mag.size//2 - 1)
         iphase = sp.concatenate((sp.array([0]),iphase,sp.array([0]),-iphase[::-1]),axis=0).reshape(mag.shape)
-        
+
         WORK_SIZE = mag.size if mag.size <= 2**8 else 2**8
         mag_dev = thr.to_device(mag.astype(dtype[0]))
         iphase_dev = thr.to_device(iphase.astype(dtype[0]))
-        adft_dev = thr.empty_like(iphase.astype(dtype[1]))
-        as1_dev = thr.empty_like(iphase.astype(dtype[1]))
-        
+        Gp_k_dev = thr.empty_like(iphase.astype(dtype[1]))
+        gp_k_dev = thr.empty_like(iphase.astype(dtype[1]))
+        g_k_dev = thr.empty_like(iphase.astype(dtype[0]))
+        g_kTemp_dev = thr.to_device(iphase.astype(dtype[0]))
+        G_k_dev = thr.empty_like(iphase.astype(dtype[1]))
+
         prg1 = thr.compile("""
-        KERNEL void makeAdft(
+        KERNEL void setUp(
             GLOBAL_MEM double *mag,
             GLOBAL_MEM double *iphase,
-            GLOBAL_MEM ${ctype} *adft)
+            GLOBAL_MEM ${ctype} *Gp_k)
         {
-            const SIZE_T i = get_local_id(0);
-            const SIZE_T group = get_group_id(0);
-            const SIZE_T workSize = get_local_size(0);
-            SIZE_T index = group*workSize + i;
-            adft[index] = ${polar}(mag[index],iphase[index]);
+            const SIZE_T ID = get_local_id(0);
+            const SIZE_T GROUP = get_group_id(0);
+            const SIZE_T WORKSIZE = get_local_size(0);
+            SIZE_T index = GROUP * WORKSIZE + ID;
+            Gp_k[index] = ${polar}(mag[index], iphase[index]);
         }
-        
-         KERNEL void erStep(
-            GLOBAL_MEM ${ctype} *as2,
+
+        KERNEL void step4(
+            GLOBAL_MEM ${ctype} *gp_k,
+            GLOBAL_MEM double *g_k,
             GLOBAL_MEM int *support)
         {
-            const SIZE_T i = get_local_id(0);
-            const SIZE_T group = get_group_id(0);
-            const SIZE_T workSize = get_local_size(0);
-            const SIZE_T index = group*workSize + i;
+            const SIZE_T ID = get_local_id(0);
+            const SIZE_T GROUP = get_group_id(0);
+            const SIZE_T WORKSIZE = get_local_size(0);
+            SIZE_T index = GROUP * WORKSIZE + ID;
             
-            if(!support[index])
+            if (support[index])
             {
-                as2[index] = 0;
+                g_k[index] = gp_k[index].x;
+            }
+            else
+            {
+                g_k[index] = 0;
             }
         }
         
-        KERNEL void adftLoop(
+        KERNEL void step2(
             GLOBAL_MEM double *mag,
-            GLOBAL_MEM ${ctype} *adft)
+            GLOBAL_MEM ${ctype} *G_k,
+            GLOBAL_MEM ${ctype} *Gp_k)
         {
-            const SIZE_T i = get_local_id(0);
-            const SIZE_T group = get_group_id(0);
-            const SIZE_T workSize = get_local_size(0);
-            const SIZE_T index = group*workSize + i;
-            double arg = atan2(adft[index].y, adft[index].x); // the arg of a complex number
-            adft[index] = ${polar}(mag[index],arg); 
+            const SIZE_T ID = get_local_id(0);
+            const SIZE_T GROUP = get_group_id(0);
+            const SIZE_T WORKSIZE = get_local_size(0);
+            SIZE_T index = GROUP * WORKSIZE + ID;
+            
+            double arg = atan2(G_k[index].y, G_k[index].x); // the arg of a complex number
+            Gp_k[index] = ${polar}(mag[index], arg);
         }
-        """,render_kwds=dict(
-            ctype=dtypes.ctype(dtype[1]),
-            polar=functions.polar(dtype[0])))
-        
-        prg1.makeAdft(mag_dev,iphase_dev,adft_dev,local_size=WORK_SIZE,global_size=mag.size)        
-        cfft = FFT(adft_dev).compile(thr)
-        cfft(as1_dev,adft_dev,1) #ifft
-        as2_dev = thr.to_device(as1_dev.get())
+        """, render_kwds = dict(
+            ctype = dtypes.ctype(dtype[1]),
+            polar = functions.polar(dtype[0])))
 
-        prg1.erStep(as2_dev,support_dev,local_size=WORK_SIZE,global_size=mag.size)
-        as1_dev = as2_dev.copy()
-        as1=as1_dev.get().real
-        ax = fig.add_subplot(222,projection='3d')
-        ax.set_zlim(as1.min(),as1.max())
-        ax.plot_surface(X,Y,as1,rstride=1,cstride=1,cmap=cm.Accent_r,
-                        linewidth=0,antialiased=False)
+        prg1.setUp(mag_dev, iphase_dev, Gp_k_dev, local_size = WORK_SIZE, global_size = mag.size)   #step2 for first time
+        cfft = FFT(Gp_k_dev).compile(thr)
+        cfft(gp_k_dev, Gp_k_dev) # ifft   step 3
+
+        prg1.step4(gp_k_dev, g_k_dev, support_dev, local_size = WORK_SIZE, global_size = mag.size)  # step 4
+        g_kTemp_dev = g_k_dev.copy()
+
+        g_k = g_k_dev.get()
+        ax = fig.add_subplot(222, projection='3d')
+        ax.set_zlim(g_k.min(), g_k.max())
+        ax.plot_surface(X, Y, g_k, rstride=1, cstride=1, cmap=cm.Accent_r, linewidth=0, antialiased=False)
         plt.title("1 iteration")
-        while True:
-            cfft(adft_dev,as1_dev)
-            prg1.adftLoop(mag_dev,adft_dev,local_size=WORK_SIZE,global_size=mag.size)
-            cfft(as2_dev,adft_dev,1)
-            prg1.erStep(as2_dev,support_dev,local_size=WORK_SIZE,global_size=mag.size)
-            as1 = as1_dev.get()
-            as2 = as2_dev.get()
-            if (sp.absolute(as1 - as2)**2).sum() < .0000001 or k > KMAX:
+
+        while k < KMAX:
+            cfft(G_k_dev, g_k_dev)  # step 1
+            prg1.step2(mag_dev, G_k_dev, Gp_k_dev, local_size = WORK_SIZE, global_size = mag.size) # step 2
+            cfft(gp_k_dev, Gp_k_dev)  # step 3
+            prg1.step4(gp_k_dev, g_kTemp_dev, support_dev, local_size = WORK_SIZE, global_size = mag.size)  # step 4
+
+            g_k = g_k_dev.get()
+            g_kTemp = g_kTemp_dev.get()
+            if (sp.absolute(g_k - g_kTemp)**2).sum() < .0000001:
                 break
-            k = k+1
-            as1_dev = as2_dev.copy()
-            if k == 10:
-                ax = fig.add_subplot(223,projection='3d')
-                ax.set_zlim(as2.real.min(),as2.real.max())
-                ax.plot_surface(X,Y,as2.real,rstride=1,cstride=1,cmap=cm.Accent_r,
-                                linewidth=0,antialiased=False)
-                plt.title("10 iterations")
-        as1 = as1.real
-        #print('done')
-        
-        ax2 = fig.add_subplot(224, projection='3d')
-        ax2.set_zlim(as1.min(),as1.max())
-        ax2.plot_surface(X, Y, as1,rstride=1, cstride=1, cmap=cm.Accent_r,
-                               linewidth=0, antialiased=False)
+            else:
+                k = k + 1
+                g_k_dev = g_kTemp_dev.copy()
+                if k == 10:
+                    ax = fig.add_subplot(223, projection='3d')
+                    ax.set_zlim(g_kTemp.min(), g_kTemp.max())
+                    ax.plot_surface(X, Y, g_kTemp, rstride=1, cstride=1, cmap=cm.Accent_r, linewidth=0, antialiased=False)
+                    plt.title("10 iterations")
+        g_k = g_kTemp
+
+        ax = fig.add_subplot(224,projection='3d')
+        ax.set_zlim(g_k.min(), g_k.max())
+        ax.plot_surface(X, Y, g_k, rstride=1, cstride=1, cmap=cm.Accent_r, linewidth=0, antialiased=False)
         plt.title("{0} iterations".format(k))
         sfile = BytesIO()
-        plt.savefig(sfile,format="svg")
+        plt.savefig(sfile, format="svg")
         plt.close()
         return b''.join(sfile.getvalue().split(os.linesep.encode()))
-
-c = ER(signal,n,xLower,xUpper,yLower,yUpper)
+c = ER(signal, n, xLower, xUpper, yLower, yUpper)
 print(c.run())
+        
